@@ -220,3 +220,145 @@ Esto permite que un usuario sea:
 - Perfil de usuario funcional
 - Arquitectura modular implementada
 - Base de datos preparada para expansión
+
+
+## Sprint 2
+
+
+Este proyecto corresponde al backend de un sistema para la gestión de tareas domésticas, donde los usuarios pueden crear hogares, unirse a ellos y administrar tareas asignadas.
+
+En este Sprint 2 se evolucionó el sistema hacia una arquitectura más robusta, se ampliaron las funcionalidades del dominio y se implementó integración continua y despliegue en la nube.
+
+## Arquitectura
+
+El proyecto está construido como un monolito modular, organizado por dominios:
+
+com.domesticas
+│
+├── auth/
+├── usuario/
+├── hogar/
+├── tarea/
+│
+├── security/
+├── config/
+├── exception/
+
+Cada módulo contiene:
+
+controller
+service
+repository
+model
+dto
+
+## Seguridad
+
+Autenticación mediante JWT
+Protección de endpoints
+Filtro de seguridad personalizado (JwtAuthenticationFilter)
+
+## Funcionalidades Implementadas
+
+# Usuario
+Registro
+Login
+Obtener perfil autenticado
+
+# Hogar
+Crear hogar
+Unirse a hogar
+Salirse del hogar
+Ver miembros del hogar
+Gestión de roles dentro del hogar
+
+# Solicitudes
+Enviar solicitud de ingreso
+Aceptar solicitud
+Rechazar solicitud
+
+# Tareas
+Crear tarea
+Asignar tarea
+Cambiar estado de tarea
+Consultar tareas por usuario
+Consultar tareas del hogar
+ 
+## HATEOAS
+
+Se implementó HATEOAS para enriquecer las respuestas de la API, permitiendo navegar entre recursos mediante enlaces incluidos en las respuestas.
+
+# Documentación
+
+Se integró Swagger (OpenAPI) para la documentación interactiva de la API:
+
+/swagger-ui/index.html
+ Integración Continua (CI)
+
+Se configuró GitHub Actions para automatizar:
+
+Build del proyecto con Maven
+Validación automática en cada push y pull request
+
+Archivo:
+
+.github/workflows/ci.yml
+
+# Despliegue
+
+La aplicación fue desplegada en la nube usando Render.
+
+URL del servicio:
+
+https://domestica-api.onrender.com
+
+Nota:
+El endpoint raíz (/) puede devolver 404 Not Found, ya que la API está diseñada para trabajar con rutas específicas.
+
+Contenerización
+
+Se utilizó Docker para facilitar el despliegue en Render.
+
+Archivo:
+
+Dockerfile
+ Variables de Entorno
+
+Configuradas en Render:
+
+DB_URL
+DB_USER
+DB_PASSWORD
+JWT_SECRET
+PORT
+
+# Tecnologías Utilizadas
+
+Java 21
+Spring Boot
+Spring Security
+JWT
+Maven
+PostgreSQL (Supabase)
+Swagger (OpenAPI)
+GitHub Actions
+Docker
+Render
+
+# Resultados del Sprint 2
+
+En este sprint se logró:
+
+Evolucionar la arquitectura a un modelo modular
+Implementar múltiples endpoints funcionales
+Incorporar navegación con HATEOAS
+Documentar la API con Swagger
+Automatizar el build con CI
+Desplegar la aplicación en producción
+Estado del Proyecto
+
+Backend funcional
+Seguridad implementada
+API documentada
+CI configurado
+Deploy en producción
