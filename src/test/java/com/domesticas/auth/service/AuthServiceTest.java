@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -25,10 +26,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class) // Activa Mockito sin levantar Spring
+@ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
 
-    // Estas son dependencias FALSAS (mocks), no tocan BD ni nada real
     @Mock
     private UsuarioRepository usuarioRepository;
 
@@ -38,170 +38,319 @@ class AuthServiceTest {
     @Mock
     private JwtService jwtService;
 
-    // AuthService real, pero con sus dependencias reemplazadas por los mocks
     @InjectMocks
     private AuthService authService;
 
-    // Objetos reutilizables entre tests
     private RegisterRequest registerRequest;
     private LoginRequest loginRequest;
     private Usuario usuarioFalso;
 
-    @BeforeEach // Se ejecuta antes de CADA test
+    @BeforeEach
     void setUp() {
-        // Datos de registro válidos
+
         registerRequest = new RegisterRequest();
         registerRequest.setNombre("Juan Test");
         registerRequest.setEmail("juan@test.com");
         registerRequest.setPassword("password123");
 
-        // Datos de login válidos
         loginRequest = new LoginRequest();
         loginRequest.setEmail("juan@test.com");
         loginRequest.setPassword("password123");
 
-        // Usuario que simula lo que devolvería la BD
         usuarioFalso = Usuario.builder()
                 .id(1L)
                 .nombre("Juan Test")
                 .email("juan@test.com")
-                .password("$2a$10$hashFalsoParaElTest") // contraseña ya hasheada
+                .password("$2a$10$hashFalsoParaElTest")
                 .build();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CP001 — Registro exitoso con datos válidos
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
+    // REGISTRO EXITOSO
+    // ─────────────────────────────────────────────────────────
+
     @Test
     @DisplayName("CP001 - Registro exitoso con datos válidos")
     void registrar_ConDatosValidos_DebeRetornarUsuarioCreado() {
 
-        // ARRANGE: definimos qué deben responder los mocks
-        when(usuarioRepository.existsByEmail("juan@test.com")).thenReturn(false);
-        when(passwordEncoder.encode("password123")).thenReturn("$2a$10$hashFalsoParaElTest");
-        when(usuarioRepository.save(any(Usuario.class))).thenReturn(usuarioFalso);
+        when(usuarioRepository.existsByEmail("juan@test.com"))
+                .thenReturn(false);
 
-        // ACT: ejecutamos el método real
+        when(passwordEncoder.encode("password123"))
+                .thenReturn("$2a$10$hashFalsoParaElTest");
+
+        when(usuarioRepository.save(any(Usuario.class)))
+                .thenReturn(usuarioFalso);
+
         UsuarioResponse response = authService.registrar(registerRequest);
 
-        // ASSERT: verificamos que el resultado sea el esperado
         assertNotNull(response);
         assertEquals(1L, response.getId());
         assertEquals("Juan Test", response.getNombre());
         assertEquals("juan@test.com", response.getEmail());
         assertEquals("Usuario registrado exitosamente", response.getMensaje());
 
-        // Verificamos que save() fue llamado exactamente 1 vez
-        verify(usuarioRepository, times(1)).save(any(Usuario.class));
+        ArgumentCaptor<Usuario> captor =
+                ArgumentCaptor.forClass(Usuario.class);
+
+        verify(usuarioRepository).save(captor.capture());
+
+        Usuario usuarioGuardado = captor.getValue();
+
+        assertEquals("Juan Test", usuarioGuardado.getNombre());
+        assertEquals("juan@test.com", usuarioGuardado.getEmail());
+
+        // Verifica que NO se guarde en texto plano
+        assertNotEquals("password123", usuarioGuardado.getPassword());
+
+        // Verifica que sí se guarde el hash esperado
+        assertEquals(
+                "$2a$10$hashFalsoParaElTest",
+                usuarioGuardado.getPassword()
+        );
+
+        verify(passwordEncoder, times(1))
+                .encode("password123");
+
+        verify(usuarioRepository, times(1))
+                .existsByEmail("juan@test.com");
+
+        verifyNoMoreInteractions(jwtService);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CP002 — Registro falla porque el correo ya existe
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
+    // CORREO DUPLICADO
+    // ─────────────────────────────────────────────────────────
+
     @Test
     @DisplayName("CP002 - Registro con correo duplicado lanza excepción")
     void registrar_ConCorreoDuplicado_DebeLanzarBadRequestException() {
 
-        // ARRANGE: el correo ya existe en la BD
-        when(usuarioRepository.existsByEmail("juan@test.com")).thenReturn(true);
+        when(usuarioRepository.existsByEmail("juan@test.com"))
+                .thenReturn(true);
 
-        // ACT + ASSERT: esperamos que se lance la excepción correcta
-        BadRequestException excepcion = assertThrows(
+        BadRequestException exception = assertThrows(
                 BadRequestException.class,
                 () -> authService.registrar(registerRequest)
         );
 
-        assertEquals("El correo ya está registrado", excepcion.getMessage());
+        assertEquals(
+                "El correo ya está registrado",
+                exception.getMessage()
+        );
 
-        // save() NUNCA debe llamarse si el correo ya existe
-        verify(usuarioRepository, never()).save(any());
+        verify(usuarioRepository, never())
+                .save(any());
+
+        verify(passwordEncoder, never())
+                .encode(anyString());
+
+        verifyNoInteractions(jwtService);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CP003 — La contraseña se guarda hasheada, nunca en texto plano
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
+    // PASSWORD HASHEADA
+    // ─────────────────────────────────────────────────────────
+
     @Test
-    @DisplayName("CP003 - La contraseña se almacena como hash, no en texto plano")
+    @DisplayName("CP003 - Password debe almacenarse hasheada")
     void registrar_DebeGuardarPasswordHasheada() {
 
-        when(usuarioRepository.existsByEmail(anyString())).thenReturn(false);
-        when(passwordEncoder.encode("password123")).thenReturn("$2a$10$hashFalsoParaElTest");
-        when(usuarioRepository.save(any(Usuario.class))).thenReturn(usuarioFalso);
+        when(usuarioRepository.existsByEmail(anyString()))
+                .thenReturn(false);
+
+        when(passwordEncoder.encode("password123"))
+                .thenReturn("$2a$10$hashFalsoParaElTest");
+
+        when(usuarioRepository.save(any(Usuario.class)))
+                .thenReturn(usuarioFalso);
 
         authService.registrar(registerRequest);
 
-        // Verificamos que encode() fue invocado con la contraseña original
-        verify(passwordEncoder, times(1)).encode("password123");
+        ArgumentCaptor<Usuario> captor =
+                ArgumentCaptor.forClass(Usuario.class);
 
-        // Verificamos que el Usuario guardado NO tiene la contraseña en texto plano
-        verify(usuarioRepository).save(argThat(usuarioGuardado ->
-                !usuarioGuardado.getPassword().equals("password123") &&
-                        usuarioGuardado.getPassword().equals("$2a$10$hashFalsoParaElTest")
-        ));
+        verify(usuarioRepository).save(captor.capture());
+
+        Usuario usuarioGuardado = captor.getValue();
+
+        assertNotEquals(
+                "password123",
+                usuarioGuardado.getPassword()
+        );
+
+        assertEquals(
+                "$2a$10$hashFalsoParaElTest",
+                usuarioGuardado.getPassword()
+        );
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CP004 — Login exitoso con credenciales correctas
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
+    // LOGIN EXITOSO
+    // ─────────────────────────────────────────────────────────
+
     @Test
-    @DisplayName("CP004 - Login exitoso retorna token JWT")
+    @DisplayName("CP004 - Login exitoso retorna JWT")
     void login_ConCredencialesCorrectas_DebeRetornarTokenJWT() {
 
         when(usuarioRepository.findByEmail("juan@test.com"))
                 .thenReturn(Optional.of(usuarioFalso));
-        when(passwordEncoder.matches("password123", "$2a$10$hashFalsoParaElTest"))
-                .thenReturn(true);
+
+        when(passwordEncoder.matches(
+                "password123",
+                "$2a$10$hashFalsoParaElTest"
+        )).thenReturn(true);
+
         when(jwtService.generateToken("juan@test.com"))
                 .thenReturn("token-jwt-generado-123");
 
         LoginResponse response = authService.login(loginRequest);
 
         assertNotNull(response);
+
         assertEquals(1L, response.getId());
         assertEquals("Juan Test", response.getNombre());
         assertEquals("juan@test.com", response.getEmail());
         assertEquals("token-jwt-generado-123", response.getToken());
-        assertEquals("Inicio de sesión exitoso", response.getMensaje());
+        assertEquals(
+                "Inicio de sesión exitoso",
+                response.getMensaje()
+        );
+
+        verify(jwtService, times(1))
+                .generateToken("juan@test.com");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CP005 — Login falla porque el correo no existe
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────
+    // LOGIN - CORREO NO EXISTE
+    // ─────────────────────────────────────────────────────────
+
     @Test
-    @DisplayName("CP005a - Login con correo inexistente lanza excepción")
+    @DisplayName("CP005 - Login con correo inexistente")
     void login_ConCorreoInexistente_DebeLanzarUnauthorizedException() {
 
-        // El correo no existe en la BD (Optional vacío)
         when(usuarioRepository.findByEmail("juan@test.com"))
                 .thenReturn(Optional.empty());
 
-        UnauthorizedException excepcion = assertThrows(
+        UnauthorizedException exception = assertThrows(
                 UnauthorizedException.class,
                 () -> authService.login(loginRequest)
         );
 
-        assertEquals("Credenciales inválidas", excepcion.getMessage());
+        assertEquals(
+                "Credenciales inválidas",
+                exception.getMessage()
+        );
+
+        verify(jwtService, never())
+                .generateToken(anyString());
+
+        verify(passwordEncoder, never())
+                .matches(anyString(), anyString());
     }
 
-    // CP005 — Login falla porque la contraseña es incorrecta
+    // ─────────────────────────────────────────────────────────
+    // LOGIN - PASSWORD INCORRECTA
+    // ─────────────────────────────────────────────────────────
+
     @Test
-    @DisplayName("CP005b - Login con contraseña incorrecta lanza excepción")
+    @DisplayName("CP006 - Login con contraseña incorrecta")
     void login_ConPasswordIncorrecta_DebeLanzarUnauthorizedException() {
 
-        // El correo existe pero la contraseña no coincide
         when(usuarioRepository.findByEmail("juan@test.com"))
                 .thenReturn(Optional.of(usuarioFalso));
-        when(passwordEncoder.matches("password123", "$2a$10$hashFalsoParaElTest"))
-                .thenReturn(false); // <-- contraseña incorrecta
 
-        UnauthorizedException excepcion = assertThrows(
+        when(passwordEncoder.matches(
+                "password123",
+                "$2a$10$hashFalsoParaElTest"
+        )).thenReturn(false);
+
+        UnauthorizedException exception = assertThrows(
                 UnauthorizedException.class,
                 () -> authService.login(loginRequest)
         );
 
-        assertEquals("Credenciales inválidas", excepcion.getMessage());
+        assertEquals(
+                "Credenciales inválidas",
+                exception.getMessage()
+        );
 
-        // El token nunca debe generarse si las credenciales son malas
-        verify(jwtService, never()).generateToken(anyString());
+        verify(jwtService, never())
+                .generateToken(anyString());
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // SAVE FALLA
+    // ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("CP007 - Error al guardar usuario")
+    void registrar_CuandoSaveFalla_DebePropagarExcepcion() {
+
+        when(usuarioRepository.existsByEmail(anyString()))
+                .thenReturn(false);
+
+        when(passwordEncoder.encode(anyString()))
+                .thenReturn("$2a$10$hashFalsoParaElTest");
+
+        when(usuarioRepository.save(any(Usuario.class)))
+                .thenThrow(new RuntimeException("DB error"));
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> authService.registrar(registerRequest)
+        );
+
+        assertEquals("DB error", exception.getMessage());
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // JWT FALLA
+    // ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("CP008 - Error generando JWT")
+    void login_CuandoJwtFalla_DebePropagarExcepcion() {
+
+        when(usuarioRepository.findByEmail(anyString()))
+                .thenReturn(Optional.of(usuarioFalso));
+
+        when(passwordEncoder.matches(anyString(), anyString()))
+                .thenReturn(true);
+
+        when(jwtService.generateToken(anyString()))
+                .thenThrow(new RuntimeException("JWT error"));
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> authService.login(loginRequest)
+        );
+
+        assertEquals("JWT error", exception.getMessage());
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PASSWORD ENCODER FALLA
+    // ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("CP009 - Error al hashear password")
+    void registrar_CuandoPasswordEncoderFalla_DebePropagarExcepcion() {
+
+        when(usuarioRepository.existsByEmail(anyString()))
+                .thenReturn(false);
+
+        when(passwordEncoder.encode(anyString()))
+                .thenThrow(new RuntimeException("Encoder error"));
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> authService.registrar(registerRequest)
+        );
+
+        assertEquals("Encoder error", exception.getMessage());
+
+        verify(usuarioRepository, never())
+                .save(any());
     }
 }
