@@ -21,22 +21,26 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class HogarServiceTest {
 
-    @Mock private HogarRepository hogarRepository;
-    @Mock private UsuarioRepository usuarioRepository;
-    @Mock private MiembroHogarRepository miembroHogarRepository;
-    @Mock private RolRepository rolRepository;
+    @Mock
+    private HogarRepository hogarRepository;
+    @Mock
+    private UsuarioRepository usuarioRepository;
+    @Mock
+    private MiembroHogarRepository miembroHogarRepository;
+    @Mock
+    private RolRepository rolRepository;
 
     @InjectMocks
     private HogarService hogarService;
@@ -85,7 +89,6 @@ class HogarServiceTest {
         CrearHogarRequest request = new CrearHogarRequest();
         request.setNombre("Hogar Test");
 
-        // El código generado no existe previamente
         when(hogarRepository.existsByCodigoAcceso(anyString())).thenReturn(false);
         when(usuarioRepository.findByEmail("admin@test.com"))
                 .thenReturn(Optional.of(usuarioAdmin));
@@ -102,11 +105,58 @@ class HogarServiceTest {
         assertEquals("Hogar Test", response.getNombre());
         assertEquals("Grupo creado correctamente", response.getMensaje());
 
-        // Verifica que se guardó el hogar Y el miembro administrador
         verify(hogarRepository, times(1)).save(any(Hogar.class));
-        verify(miembroHogarRepository, times(1)).save(argThat(m ->
-                Boolean.TRUE.equals(m.getEsAdministrador())
-        ));
+        verify(miembroHogarRepository, times(1))
+                .save(argThat(m -> Boolean.TRUE.equals(m.getEsAdministrador())));
+    }
+
+    @Test
+    @DisplayName("CP011b - Genera nuevo código si el primero ya existe (colisión)")
+    void crearHogar_CodigoColisionado_DebeRegenerarCodigo() {
+
+        CrearHogarRequest request = new CrearHogarRequest();
+        request.setNombre("Hogar Test");
+
+        // Primera llamada colisiona, la segunda es libre
+        when(hogarRepository.existsByCodigoAcceso(anyString()))
+                .thenReturn(true)
+                .thenReturn(false);
+        when(usuarioRepository.findByEmail("admin@test.com"))
+                .thenReturn(Optional.of(usuarioAdmin));
+        when(rolRepository.findByNombre("Padre"))
+                .thenReturn(Optional.of(rolPadre));
+        when(hogarRepository.save(any(Hogar.class))).thenReturn(hogar);
+        when(miembroHogarRepository.save(any(MiembroHogar.class)))
+                .thenReturn(miembroAdmin);
+
+        HogarResponse response = hogarService.crearHogar("admin@test.com", request);
+
+        assertNotNull(response);
+        // Se llamó existsByCodigoAcceso al menos 2 veces por la colisión
+        verify(hogarRepository, atLeast(2)).existsByCodigoAcceso(anyString());
+    }
+
+    @Test
+    @DisplayName("CP011c - Generar código cuando hay múltiples colisiones")
+    void generarCodigo_MultiplesColisiones_DebeReintentar() {
+        CrearHogarRequest request = new CrearHogarRequest();
+        request.setNombre("Hogar Test");
+
+        // Simulamos 2 colisiones y luego éxito
+        when(hogarRepository.existsByCodigoAcceso(anyString()))
+                .thenReturn(true)
+                .thenReturn(true)
+                .thenReturn(false);
+
+        when(usuarioRepository.findByEmail(anyString())).thenReturn(Optional.of(usuarioAdmin));
+        when(rolRepository.findByNombre("Padre")).thenReturn(Optional.of(rolPadre));
+        when(hogarRepository.save(any())).thenReturn(hogar);
+        when(miembroHogarRepository.save(any())).thenReturn(miembroAdmin);
+
+        hogarService.crearHogar("admin@test.com", request);
+
+        // Se llamó a existsByCodigoAcceso 3 veces (2 true, 1 false)
+        verify(hogarRepository, times(3)).existsByCodigoAcceso(anyString());
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -122,8 +172,7 @@ class HogarServiceTest {
 
         BadRequestException ex = assertThrows(
                 BadRequestException.class,
-                () -> hogarService.crearHogar("admin@test.com", request)
-        );
+                () -> hogarService.crearHogar("admin@test.com", request));
 
         assertEquals("El nombre del grupo es obligatorio", ex.getMessage());
         verify(hogarRepository, never()).save(any());
@@ -138,10 +187,46 @@ class HogarServiceTest {
 
         BadRequestException ex = assertThrows(
                 BadRequestException.class,
-                () -> hogarService.crearHogar("admin@test.com", request)
-        );
+                () -> hogarService.crearHogar("admin@test.com", request));
 
         assertEquals("El nombre del grupo es obligatorio", ex.getMessage());
+        verify(hogarRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("CP012c - Crear hogar con usuario inexistente lanza BadRequestException")
+    void crearHogar_UsuarioNoEncontrado_DebeLanzarExcepcion() {
+
+        CrearHogarRequest request = new CrearHogarRequest();
+        request.setNombre("Hogar Test");
+
+        when(usuarioRepository.findByEmail("noexiste@test.com"))
+                .thenReturn(Optional.empty());
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> hogarService.crearHogar("noexiste@test.com", request));
+
+        assertEquals("Usuario no encontrado", ex.getMessage());
+        verify(hogarRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("CP012d - Crear hogar sin rol Padre configurado lanza BadRequestException")
+    void crearHogar_RolPadreNoEncontrado_DebeLanzarExcepcion() {
+
+        CrearHogarRequest request = new CrearHogarRequest();
+        request.setNombre("Hogar Test");
+
+        when(usuarioRepository.findByEmail("admin@test.com"))
+                .thenReturn(Optional.of(usuarioAdmin));
+        when(rolRepository.findByNombre("Padre")).thenReturn(Optional.empty());
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> hogarService.crearHogar("admin@test.com", request));
+
+        assertEquals("Rol Padre no encontrado", ex.getMessage());
         verify(hogarRepository, never()).save(any());
     }
 
@@ -154,19 +239,40 @@ class HogarServiceTest {
     void obtenerDetalleHogar_MiembroRegular_NoDebeVerCodigoAcceso() {
 
         when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
-        // Lista tiene solo al miembro regular (no admin)
         when(miembroHogarRepository.findByHogarId(10L))
                 .thenReturn(List.of(miembroRegular));
 
-        DetalleHogarResponse response =
-                hogarService.obtenerDetalleHogar(10L, "miembro@test.com");
+        DetalleHogarResponse response = hogarService.obtenerDetalleHogar(10L, "miembro@test.com");
 
         assertNotNull(response);
         assertEquals("Hogar Test", response.getNombre());
         assertEquals(1, response.getMiembros().size());
-
-        // El código de acceso debe ser null para miembros regulares
         assertNull(response.getCodigoAcceso());
+    }
+
+    @Test
+    @DisplayName("CP013b - Obtener detalle de hogar inexistente lanza BadRequestException")
+    void obtenerDetalleHogar_HogarNoExiste_DebeLanzarExcepcion() {
+
+        when(hogarRepository.findById(99L)).thenReturn(Optional.empty());
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> hogarService.obtenerDetalleHogar(99L, "admin@test.com"));
+
+        assertEquals("Grupo no encontrado", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("CP013c - Obtener detalle con lista de miembros vacía")
+    void obtenerDetalleHogar_ListaMiembrosVacia_DebeRetornarDetalle() {
+        when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+        when(miembroHogarRepository.findByHogarId(10L)).thenReturn(List.of());
+
+        DetalleHogarResponse response = hogarService.obtenerDetalleHogar(10L, "admin@test.com");
+
+        assertNotNull(response);
+        assertTrue(response.getMiembros().isEmpty());
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -181,11 +287,9 @@ class HogarServiceTest {
         when(miembroHogarRepository.findByHogarId(10L))
                 .thenReturn(List.of(miembroAdmin));
 
-        DetalleHogarResponse response =
-                hogarService.obtenerDetalleHogar(10L, "admin@test.com");
+        DetalleHogarResponse response = hogarService.obtenerDetalleHogar(10L, "admin@test.com");
 
         assertNotNull(response);
-        // El administrador sí debe ver el código
         assertEquals("ABC123", response.getCodigoAcceso());
     }
 
@@ -210,8 +314,7 @@ class HogarServiceTest {
                 .thenReturn(Optional.of(miembroAdmin));
         when(hogarRepository.save(any(Hogar.class))).thenReturn(hogarActualizado);
 
-        HogarResponse response =
-                hogarService.actualizarHogar(10L, "admin@test.com", request);
+        HogarResponse response = hogarService.actualizarHogar(10L, "admin@test.com", request);
 
         assertNotNull(response);
         assertEquals("Hogar Actualizado", response.getNombre());
@@ -236,10 +339,28 @@ class HogarServiceTest {
 
         BadRequestException ex = assertThrows(
                 BadRequestException.class,
-                () -> hogarService.actualizarHogar(10L, "miembro@test.com", request)
-        );
+                () -> hogarService.actualizarHogar(10L, "miembro@test.com", request));
 
         assertEquals("Solo el administrador puede editar el grupo", ex.getMessage());
+        verify(hogarRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("CP025b - Actualizar hogar sin ser miembro lanza BadRequestException")
+    void actualizarHogar_UsuarioNoEsMiembro_DebeLanzarExcepcion() {
+
+        ActualizarHogarRequest request = new ActualizarHogarRequest();
+        request.setNombre("Nuevo nombre");
+
+        when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "externo@test.com"))
+                .thenReturn(Optional.empty());
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> hogarService.actualizarHogar(10L, "externo@test.com", request));
+
+        assertEquals("No perteneces a este grupo", ex.getMessage());
         verify(hogarRepository, never()).save(any());
     }
 
@@ -252,15 +373,29 @@ class HogarServiceTest {
     void actualizarHogar_ConNombreVacio_DebeLanzarExcepcion() {
 
         ActualizarHogarRequest request = new ActualizarHogarRequest();
-        request.setNombre(""); // campo obligatorio vacío
+        request.setNombre("");
 
         BadRequestException ex = assertThrows(
                 BadRequestException.class,
-                () -> hogarService.actualizarHogar(10L, "admin@test.com", request)
-        );
+                () -> hogarService.actualizarHogar(10L, "admin@test.com", request));
 
         assertEquals("El nombre del grupo es obligatorio", ex.getMessage());
         verify(hogarRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("CP026b - Actualizar hogar con descripción null")
+    void actualizarHogar_ConDescripcionNull_DebeFuncionar() {
+        ActualizarHogarRequest request = new ActualizarHogarRequest();
+        request.setNombre("Nombre Válido");
+        request.setDescripcion(null); // Caso límite
+
+        when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "admin@test.com"))
+                .thenReturn(Optional.of(miembroAdmin));
+        when(hogarRepository.save(any(Hogar.class))).thenReturn(hogar);
+
+        assertDoesNotThrow(() -> hogarService.actualizarHogar(10L, "admin@test.com", request));
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -279,11 +414,8 @@ class HogarServiceTest {
 
         hogarService.eliminarHogar(10L, "admin@test.com");
 
-        // Verifica que se eliminaron todos los miembros
         verify(miembroHogarRepository, times(1))
                 .deleteAll(List.of(miembroAdmin, miembroRegular));
-
-        // Verifica que el hogar fue eliminado
         verify(hogarRepository, times(1)).delete(hogar);
 
         // NOTA: las tareas asociadas al hogar NO se eliminan explícitamente
@@ -305,10 +437,25 @@ class HogarServiceTest {
 
         BadRequestException ex = assertThrows(
                 BadRequestException.class,
-                () -> hogarService.eliminarHogar(10L, "miembro@test.com")
-        );
+                () -> hogarService.eliminarHogar(10L, "miembro@test.com"));
 
         assertEquals("Solo el administrador puede eliminar el grupo", ex.getMessage());
+        verify(hogarRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("CP028b - Eliminar hogar sin ser miembro lanza BadRequestException")
+    void eliminarHogar_UsuarioNoEsMiembro_DebeLanzarExcepcion() {
+
+        when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "externo@test.com"))
+                .thenReturn(Optional.empty());
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> hogarService.eliminarHogar(10L, "externo@test.com"));
+
+        assertEquals("No perteneces a este grupo", ex.getMessage());
         verify(hogarRepository, never()).delete(any());
     }
 
@@ -323,7 +470,6 @@ class HogarServiceTest {
         when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
         when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "miembro@test.com"))
                 .thenReturn(Optional.of(miembroRegular));
-        // Quedan otros miembros después de que se va
         when(miembroHogarRepository.findByHogarId(10L))
                 .thenReturn(List.of(miembroAdmin));
 
@@ -334,6 +480,49 @@ class HogarServiceTest {
         verify(miembroHogarRepository, never()).save(any());
         // El hogar NO se elimina porque quedan miembros
         verify(hogarRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("CP021b - Abandonar grupo inexistente lanza BadRequestException")
+    void abandonarGrupo_GrupoNoExiste_DebeLanzarExcepcion() {
+
+        when(hogarRepository.findById(99L)).thenReturn(Optional.empty());
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> hogarService.abandonarGrupo(99L, "admin@test.com"));
+
+        assertEquals("Grupo no encontrado", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("CP021c - Abandonar grupo sin ser miembro lanza BadRequestException")
+    void abandonarGrupo_UsuarioNoEsMiembro_DebeLanzarExcepcion() {
+
+        when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "externo@test.com"))
+                .thenReturn(Optional.empty());
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> hogarService.abandonarGrupo(10L, "externo@test.com"));
+
+        assertEquals("No perteneces a este grupo", ex.getMessage());
+        verify(miembroHogarRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("CP021d - Único miembro abandona y hogar se elimina")
+    void abandonarGrupo_UnicoMiembro_DebeEliminarHogar() {
+        when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "admin@test.com"))
+                .thenReturn(Optional.of(miembroAdmin));
+        when(miembroHogarRepository.findByHogarId(10L)).thenReturn(List.of());
+
+        hogarService.abandonarGrupo(10L, "admin@test.com");
+
+        verify(miembroHogarRepository).delete(miembroAdmin);
+        verify(hogarRepository).delete(hogar);
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -347,21 +536,14 @@ class HogarServiceTest {
         when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
         when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "admin@test.com"))
                 .thenReturn(Optional.of(miembroAdmin));
-        // Después de que se va el admin, queda el miembro regular
         when(miembroHogarRepository.findByHogarId(10L))
                 .thenReturn(List.of(miembroRegular));
 
         hogarService.abandonarGrupo(10L, "admin@test.com");
 
         verify(miembroHogarRepository, times(1)).delete(miembroAdmin);
-
-        // El miembro restante debe ser promovido a administrador
-        verify(miembroHogarRepository, times(1)).save(argThat(m ->
-                Boolean.TRUE.equals(m.getEsAdministrador())
-                        && m.getUsuario().getEmail().equals("miembro@test.com")
-        ));
-
-        // El hogar NO se elimina porque quedan miembros
+        verify(miembroHogarRepository, times(1)).save(argThat(m -> Boolean.TRUE.equals(m.getEsAdministrador())
+                && m.getUsuario().getEmail().equals("miembro@test.com")));
         verify(hogarRepository, never()).delete(any());
     }
 
@@ -376,18 +558,14 @@ class HogarServiceTest {
         when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
         when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "admin@test.com"))
                 .thenReturn(Optional.of(miembroAdmin));
-        // No quedan miembros después de que se va
         when(miembroHogarRepository.findByHogarId(10L))
                 .thenReturn(List.of());
 
         hogarService.abandonarGrupo(10L, "admin@test.com");
 
         verify(miembroHogarRepository, times(1)).delete(miembroAdmin);
-
-        // El grupo debe eliminarse automáticamente
         verify(hogarRepository, times(1)).delete(hogar);
-
-        // No debe reasignarse ningún admin porque no hay nadie
         verify(miembroHogarRepository, never()).save(any());
     }
+
 }
