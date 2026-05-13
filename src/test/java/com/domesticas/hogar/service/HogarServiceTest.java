@@ -27,6 +27,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -135,6 +136,29 @@ class HogarServiceTest {
                 verify(hogarRepository, atLeast(2)).existsByCodigoAcceso(anyString());
         }
 
+        @Test
+        @DisplayName("CP011c - Generar código cuando hay múltiples colisiones")
+        void generarCodigo_MultiplesColisiones_DebeReintentar() {
+                CrearHogarRequest request = new CrearHogarRequest();
+                request.setNombre("Hogar Test");
+
+                // Simulamos 2 colisiones y luego éxito
+                when(hogarRepository.existsByCodigoAcceso(anyString()))
+                                .thenReturn(true)
+                                .thenReturn(true)
+                                .thenReturn(false);
+
+                when(usuarioRepository.findByEmail(anyString())).thenReturn(Optional.of(usuarioAdmin));
+                when(rolRepository.findByNombre("Padre")).thenReturn(Optional.of(rolPadre));
+                when(hogarRepository.save(any())).thenReturn(hogar);
+                when(miembroHogarRepository.save(any())).thenReturn(miembroAdmin);
+
+                hogarService.crearHogar("admin@test.com", request);
+
+                // Se llamó a existsByCodigoAcceso 3 veces (2 true, 1 false)
+                verify(hogarRepository, times(3)).existsByCodigoAcceso(anyString());
+        }
+
         // ────────────────────────────────────────────────────────────────────────
         // CP012 — Crear grupo sin nombre lanza excepción
         // ────────────────────────────────────────────────────────────────────────
@@ -237,6 +261,18 @@ class HogarServiceTest {
                                 () -> hogarService.obtenerDetalleHogar(99L, "admin@test.com"));
 
                 assertEquals("Grupo no encontrado", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("CP013c - Obtener detalle con lista de miembros vacía")
+        void obtenerDetalleHogar_ListaMiembrosVacia_DebeRetornarDetalle() {
+                when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+                when(miembroHogarRepository.findByHogarId(10L)).thenReturn(List.of());
+
+                DetalleHogarResponse response = hogarService.obtenerDetalleHogar(10L, "admin@test.com");
+
+                assertNotNull(response);
+                assertTrue(response.getMiembros().isEmpty());
         }
 
         // ────────────────────────────────────────────────────────────────────────
@@ -345,6 +381,21 @@ class HogarServiceTest {
 
                 assertEquals("El nombre del grupo es obligatorio", ex.getMessage());
                 verify(hogarRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("CP026b - Actualizar hogar con descripción null")
+        void actualizarHogar_ConDescripcionNull_DebeFuncionar() {
+                ActualizarHogarRequest request = new ActualizarHogarRequest();
+                request.setNombre("Nombre Válido");
+                request.setDescripcion(null); // Caso límite
+
+                when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+                when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "admin@test.com"))
+                                .thenReturn(Optional.of(miembroAdmin));
+                when(hogarRepository.save(any(Hogar.class))).thenReturn(hogar);
+
+                assertDoesNotThrow(() -> hogarService.actualizarHogar(10L, "admin@test.com", request));
         }
 
         // ────────────────────────────────────────────────────────────────────────
@@ -458,6 +509,20 @@ class HogarServiceTest {
 
                 assertEquals("No perteneces a este grupo", ex.getMessage());
                 verify(miembroHogarRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("CP021d - Único miembro abandona y hogar se elimina")
+        void abandonarGrupo_UnicoMiembro_DebeEliminarHogar() {
+                when(hogarRepository.findById(10L)).thenReturn(Optional.of(hogar));
+                when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "admin@test.com"))
+                                .thenReturn(Optional.of(miembroAdmin));
+                when(miembroHogarRepository.findByHogarId(10L)).thenReturn(List.of());
+
+                hogarService.abandonarGrupo(10L, "admin@test.com");
+
+                verify(miembroHogarRepository).delete(miembroAdmin);
+                verify(hogarRepository).delete(hogar);
         }
 
         // ────────────────────────────────────────────────────────────────────────
