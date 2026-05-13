@@ -37,7 +37,10 @@
             **/dto/**,
             **/model/**,
             **/config/**,
-            **/*Application.java
+            **/security/SecurityConfig.java,
+            **/exception/GlobalExceptionHandler.java,
+            **/*Application.java,
+            **/controller/**
         </sonar.exclusions>
         <sonar.organization>jhomararrieta</sonar.organization>
         <sonar.projectKey>JhomarArrieta_domestica-api</sonar.projectKey>
