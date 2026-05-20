@@ -39,9 +39,9 @@ class TareaServiceTest {
     private CrearTareaRequest requestValido;
 
     // Fechas fijas para los tests
-    private final LocalDate HOY        = LocalDate.now();
-    private final LocalDate MANANA     = HOY.plusDays(1);
-    private final LocalDate AYER       = HOY.minusDays(1);
+    private final LocalDate hoy = LocalDate.now();
+    private final LocalDate manana = hoy.plusDays(1);
+    private final LocalDate ayer = hoy.minusDays(1);
 
     @BeforeEach
     void setUp() {
@@ -57,8 +57,8 @@ class TareaServiceTest {
         requestValido = new CrearTareaRequest();
         requestValido.setNombre("Limpiar cocina");
         requestValido.setDescripcion("Limpiar encimeras y suelo");
-        requestValido.setFechaInicio(HOY);
-        requestValido.setFechaLimite(MANANA);
+        requestValido.setFechaInicio(hoy);
+        requestValido.setFechaLimite(manana);
         requestValido.setPrioridad("ALTA");
         requestValido.setHogarId(10L);
     }
@@ -175,8 +175,8 @@ class TareaServiceTest {
     void crearTarea_ConFechaLimiteAnteriorAInicio_DebeLanzarExcepcion() {
 
         // fechaInicio = mañana, fechaLimite = ayer → inválido
-        requestValido.setFechaInicio(MANANA);
-        requestValido.setFechaLimite(AYER);
+        requestValido.setFechaInicio(manana);
+        requestValido.setFechaLimite(ayer);
 
         BadRequestException ex = assertThrows(
                 BadRequestException.class,
@@ -194,9 +194,9 @@ class TareaServiceTest {
     @DisplayName("CP031b - Fecha límite igual a fecha de inicio es válida")
     void crearTarea_ConFechaLimiteIgualAInicio_DebeCrearTarea() {
 
-        // fechaInicio = fechaLimite = HOY → válido
-        requestValido.setFechaInicio(HOY);
-        requestValido.setFechaLimite(HOY);
+        // fechaInicio = fechaLimite = hoy → válido
+        requestValido.setFechaInicio(hoy);
+        requestValido.setFechaLimite(hoy);
 
         when(usuarioRepository.findByEmail("juan@test.com"))
                 .thenReturn(Optional.of(usuario));
@@ -226,11 +226,9 @@ class TareaServiceTest {
         // actualizarse para verificar el comportamiento esperado.
 
         // Por ahora solo validamos que el campo no existe en el modelo
-        Tarea tarea = new Tarea();
-
         // Verificamos via reflexión que no hay campo "recurrencia" en Tarea
         boolean tieneRecurrencia = java.util.Arrays.stream(
-                tarea.getClass().getDeclaredFields()
+                Tarea.class.getDeclaredFields()
         ).anyMatch(f -> f.getName().equalsIgnoreCase("recurrencia")
                 || f.getName().equalsIgnoreCase("frecuencia"));
 
