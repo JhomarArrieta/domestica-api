@@ -82,9 +82,8 @@ class JwtServiceTest {
     }
 
     @Test
-    @DisplayName("CP005 - Token expirado lanza excepción")
-    void isTokenValid_ConTokenExpirado_DebeLanzarExpiredJwtException()
-            throws InterruptedException {
+    @DisplayName("CP005 - Token expirado lanza ExpiredJwtException")
+    void isTokenValid_ConTokenExpirado_DebeLanzarExpiredJwtException() {
 
         JwtService jwtExpirado = new JwtService();
 
@@ -94,23 +93,18 @@ class JwtServiceTest {
                 "mi_clave_super_secreta_para_tests_123456789"
         );
 
-        // Expira casi instantáneamente
+        // Expiración negativa: el token nace ya expirado
         ReflectionTestUtils.setField(
                 jwtExpirado,
                 "jwtExpiration",
-                1L
+                -1000L
         );
 
         String token = jwtExpirado.generateToken("juan@test.com");
-
-        Thread.sleep(10);
-
         assertThrows(
                 io.jsonwebtoken.ExpiredJwtException.class,
-                () -> jwtExpirado.isTokenValid(
-                        token,
-                        "juan@test.com"
-                )
+                () -> jwtExpirado.isTokenValid(token, "juan@test.com"),
+                "Debe lanzar ExpiredJwtException con un token expirado"
         );
     }
 }
