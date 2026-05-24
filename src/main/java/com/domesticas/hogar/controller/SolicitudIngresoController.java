@@ -1,8 +1,12 @@
 package com.domesticas.hogar.controller;
-
+import java.util.List;
 import com.domesticas.hogar.dto.request.ResponderSolicitudRequest;
 import com.domesticas.hogar.dto.request.SolicitudIngresoRequest;
+import com.domesticas.hogar.dto.response.MisSolicitudesResponse;
 import com.domesticas.hogar.service.SolicitudIngresoService;
+import com.domesticas.usuario.model.Usuario;
+import com.domesticas.usuario.repository.UsuarioRepository;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -14,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 public class SolicitudIngresoController {
 
     private final SolicitudIngresoService solicitudIngresoService;
+    private final UsuarioRepository usuarioRepository;
 
     @PostMapping
     public ResponseEntity<String> solicitarIngreso(
@@ -42,5 +47,19 @@ public class SolicitudIngresoController {
 
         return ResponseEntity.ok("Solicitud procesada correctamente");
     }
+
+    @GetMapping("/mis-solicitudes")
+public ResponseEntity<List<MisSolicitudesResponse>> misSolicitudes(
+        Authentication authentication
+) {
+
+    Usuario usuario = usuarioRepository
+            .findByEmail(authentication.getName())
+            .orElseThrow();
+
+    return ResponseEntity.ok(
+            solicitudIngresoService.obtenerMisSolicitudes(usuario.getId())
+    );
+}
       
 }

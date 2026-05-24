@@ -7,6 +7,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import com.domesticas.tarea.dto.response.TareaResponse;
+import java.util.List;
+import com.domesticas.tarea.dto.request.ActualizarTareaRequest;
+import com.domesticas.tarea.dto.response.TareaCompletadaResponse;
 
 @RestController
 @RequestMapping("/api/v1/tareas")
@@ -41,4 +45,65 @@ public ResponseEntity<String> cambiarEstado(
 
     return ResponseEntity.ok("Estado actualizado correctamente");
 }
+
+@GetMapping("/hogar/{hogarId}")
+public ResponseEntity<List<TareaResponse>> listarTareas(
+        @PathVariable Long hogarId,
+        @RequestParam(required = false) Long usuarioId,
+        @RequestParam(required = false) String estado,
+        Authentication authentication
+) {
+    String email = authentication.getName();
+
+    return ResponseEntity.ok(
+            tareaService.listarTareas(hogarId, usuarioId, estado, email)
+    );
+}
+
+@PutMapping("/{tareaId}")
+public ResponseEntity<String> actualizarTarea(
+        @PathVariable Long tareaId,
+        @RequestBody ActualizarTareaRequest request,
+        Authentication authentication
+) {
+
+    tareaService.actualizarTarea(
+            tareaId,
+            request,
+            authentication.getName()
+    );
+
+    return ResponseEntity.ok("Tarea actualizada correctamente");
+}
+
+
+@DeleteMapping("/{tareaId}")
+public ResponseEntity<String> eliminarTarea(
+        @PathVariable Long tareaId,
+        Authentication authentication
+) {
+
+    tareaService.eliminarTarea(
+            tareaId,
+            authentication.getName()
+    );
+
+    return ResponseEntity.ok("Tarea eliminada correctamente");
+}
+
+@GetMapping("/hogar/{hogarId}/completadas")
+public ResponseEntity<List<TareaCompletadaResponse>>
+obtenerTareasCompletadas(
+        @PathVariable Long hogarId,
+        Authentication authentication
+) {
+
+    return ResponseEntity.ok(
+            tareaService.obtenerTareasCompletadas(
+                    hogarId,
+                    authentication.getName()
+            )
+    );
+}
+
 }
