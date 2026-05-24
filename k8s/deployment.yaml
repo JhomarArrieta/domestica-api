@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: domesticas-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: domesticas-api
+  template:
+    metadata:
+      labels:
+        app: domesticas-api
+    spec:
+      containers:
+        - name: domesticas-api
+          image: juanparra2005/domesticas-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_URL
+              value: "jdbc:postgresql://aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require&prepareThreshold=0"
+            - name: DB_USER
+              value: "postgres.ilqaxhnpzvyszcuxwauc"
+            - name: DB_PASSWORD
+              value: "Domesticas123*+"
+            - name: JWT_SECRET
+              value: "mi_clave_super_secreta_para_jwt_12345678901234567890"
+            - name: PORT
+              value: "8080"
