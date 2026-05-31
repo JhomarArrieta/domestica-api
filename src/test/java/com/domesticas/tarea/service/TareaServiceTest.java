@@ -2,12 +2,19 @@ package com.domesticas.tarea.service;
 
 import com.domesticas.exception.BadRequestException;
 import com.domesticas.hogar.model.Hogar;
+import com.domesticas.hogar.model.MiembroHogar;
+import com.domesticas.hogar.model.Rol;
 import com.domesticas.hogar.repository.HogarRepository;
+import com.domesticas.tarea.dto.request.ActualizarTareaRequest;
 import com.domesticas.tarea.dto.request.CrearTareaRequest;
 import com.domesticas.tarea.model.Tarea;
 import com.domesticas.tarea.repository.TareaRepository;
 import com.domesticas.usuario.model.Usuario;
 import com.domesticas.usuario.repository.UsuarioRepository;
+import com.domesticas.hogar.repository.MiembroHogarRepository;
+import com.domesticas.tarea.dto.response.TareaCompletadaResponse;
+import com.domesticas.tarea.dto.response.TareaResponse;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,6 +36,7 @@ class TareaServiceTest {
     @Mock private TareaRepository tareaRepository;
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private HogarRepository hogarRepository;
+    @Mock private MiembroHogarRepository miembroHogarRepository;
 
     @InjectMocks
     private TareaService tareaService;
@@ -364,4 +372,252 @@ class TareaServiceTest {
         assertEquals("Transición de estado inválida", ex.getMessage());
         verify(tareaRepository, never()).save(any());
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+// HU17 — Listar tareas con filtros
+// ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("HU17a - Listar todas las tareas del hogar sin filtros")
+    void listarTareas_SinFiltros_DebeRetornarTodasLasTareas() {
+
+        Tarea tarea = Tarea.builder()
+                .id(1L).nombre("Limpiar").estado("PENDIENTE")
+                .prioridad("ALTA").usuario(usuario).hogar(hogar)
+                .fechaInicio(hoy).fechaLimite(manana).build();
+
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Padre").build())
+                                .esAdministrador(true).build()
+                ));
+        when(tareaRepository.findByHogarId(10L)).thenReturn(List.of(tarea));
+
+        List<TareaResponse> resultado = tareaService.listarTareas(
+                10L, null, null, "juan@test.com");
+
+        assertNotNull(resultado);
+        assertEquals(1, resultado.size());
+        assertEquals("Limpiar", resultado.get(0).getNombre());
+    }
+
+    @Test
+    @DisplayName("HU17b - Filtrar tareas por estado")
+    void listarTareas_ConFiltroEstado_DebeRetornarSoloEseEstado() {
+
+        Tarea tarea = Tarea.builder()
+                .id(1L).nombre("Limpiar").estado("PENDIENTE")
+                .prioridad("ALTA").usuario(usuario).hogar(hogar)
+                .fechaInicio(hoy).fechaLimite(manana).build();
+
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Padre").build())
+                                .esAdministrador(false).build()
+                ));
+        when(tareaRepository.findByHogarIdAndEstado(10L, "PENDIENTE"))
+                .thenReturn(List.of(tarea));
+
+        List<TareaResponse> resultado = tareaService.listarTareas(
+                10L, null, "PENDIENTE", "juan@test.com");
+
+        assertEquals(1, resultado.size());
+        assertEquals("PENDIENTE", resultado.get(0).getEstado());
+    }
+
+    @Test
+    @DisplayName("HU17c - Usuario no miembro no puede listar tareas")
+    void listarTareas_UsuarioNoMiembro_DebeLanzarExcepcion() {
+
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(
+                BadRequestException.class,
+                () -> tareaService.listarTareas(10L, null, null, "juan@test.com")
+        );
+    }
+
+// ─────────────────────────────────────────────────────────────────────────
+// HU15 — Edición de tareas
+// ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("HU15a - Miembro asignado puede editar su tarea pendiente")
+    void actualizarTarea_MiembroAsignado_DebeActualizarCampos() {
+
+        Tarea tarea = Tarea.builder()
+                .id(1L).nombre("Vieja").estado("PENDIENTE")
+                .usuario(usuario).hogar(hogar).build();
+
+        ActualizarTareaRequest request = new ActualizarTareaRequest();
+        request.setNombre("Nueva");
+        request.setDescripcion("Nueva desc");
+        request.setPrioridad("MEDIA");
+        request.setFechaInicio(hoy);
+        request.setFechaLimite(manana);
+
+        when(tareaRepository.findById(1L)).thenReturn(Optional.of(tarea));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Padre").build())
+                                .esAdministrador(false).build()
+                ));
+
+        tareaService.actualizarTarea(1L, request, "juan@test.com");
+
+        verify(tareaRepository, times(1)).save(argThat(t ->
+                "Nueva".equals(t.getNombre()) && "MEDIA".equals(t.getPrioridad())
+        ));
+    }
+
+    @Test
+    @DisplayName("HU15b - Tarea completada no puede editarse")
+    void actualizarTarea_TareaCompletada_DebeLanzarExcepcion() {
+
+        Tarea tareaCompletada = Tarea.builder()
+                .id(1L).nombre("Hecha").estado("COMPLETADA")
+                .usuario(usuario).hogar(hogar).build();
+
+        ActualizarTareaRequest request = new ActualizarTareaRequest();
+        request.setNombre("Intento editar");
+        request.setFechaInicio(hoy);
+        request.setFechaLimite(manana);
+
+        when(tareaRepository.findById(1L)).thenReturn(Optional.of(tareaCompletada));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Padre").build())
+                                .esAdministrador(false).build()
+                ));
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> tareaService.actualizarTarea(1L, request, "juan@test.com")
+        );
+
+        assertEquals("Las tareas completadas no pueden editarse", ex.getMessage());
+        verify(tareaRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("HU15c - Miembro no asignado no puede editar la tarea")
+    void actualizarTarea_UsuarioNoAsignado_DebeLanzarExcepcion() {
+
+        Usuario otroUsuario = Usuario.builder()
+                .id(99L).nombre("Otro").email("otro@test.com").password("hash").build();
+
+        Tarea tarea = Tarea.builder()
+                .id(1L).nombre("Tarea").estado("PENDIENTE")
+                .usuario(otroUsuario).hogar(hogar).build();
+
+        ActualizarTareaRequest request = new ActualizarTareaRequest();
+        request.setNombre("Intento");
+        request.setFechaInicio(hoy);
+        request.setFechaLimite(manana);
+
+        when(tareaRepository.findById(1L)).thenReturn(Optional.of(tarea));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Hijo").build())
+                                .esAdministrador(false).build()
+                ));
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> tareaService.actualizarTarea(1L, request, "juan@test.com")
+        );
+
+        assertEquals("No tienes permisos para editar esta tarea", ex.getMessage());
+    }
+
+// ─────────────────────────────────────────────────────────────────────────
+// HU16 — Eliminación de tareas
+// ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("HU16a - Miembro asignado puede eliminar su tarea")
+    void eliminarTarea_MiembroAsignado_DebeEliminarTarea() {
+
+        Tarea tarea = Tarea.builder()
+                .id(1L).nombre("Limpiar").estado("PENDIENTE")
+                .usuario(usuario).hogar(hogar).build();
+
+        when(tareaRepository.findById(1L)).thenReturn(Optional.of(tarea));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Padre").build())
+                                .esAdministrador(false).build()
+                ));
+
+        tareaService.eliminarTarea(1L, "juan@test.com");
+
+        verify(tareaRepository, times(1)).delete(tarea);
+    }
+
+    @Test
+    @DisplayName("HU16b - Miembro no asignado no puede eliminar la tarea")
+    void eliminarTarea_UsuarioNoAsignado_DebeLanzarExcepcion() {
+
+        Usuario otroUsuario = Usuario.builder()
+                .id(99L).nombre("Otro").email("otro@test.com").password("hash").build();
+
+        Tarea tarea = Tarea.builder()
+                .id(1L).nombre("Limpiar").estado("PENDIENTE")
+                .usuario(otroUsuario).hogar(hogar).build();
+
+        when(tareaRepository.findById(1L)).thenReturn(Optional.of(tarea));
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Hijo").build())
+                                .esAdministrador(false).build()
+                ));
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> tareaService.eliminarTarea(1L, "juan@test.com")
+        );
+
+        assertEquals("No tienes permisos para eliminar esta tarea", ex.getMessage());
+        verify(tareaRepository, never()).delete(any());
+    }
+
+// ─────────────────────────────────────────────────────────────────────────
+// HU19 — Tareas completadas
+// ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("HU19a - Obtener tareas completadas del hogar")
+    void obtenerTareasCompletadas_ConTareasCompletadas_DebeRetornarListado() {
+
+        Tarea tareaCompletada = Tarea.builder()
+                .id(1L).nombre("Limpiar").estado("COMPLETADA")
+                .usuario(usuario).hogar(hogar).fechaLimite(manana).build();
+
+        when(miembroHogarRepository.findByHogarIdAndUsuarioEmail(10L, "juan@test.com"))
+                .thenReturn(Optional.of(
+                        MiembroHogar.builder().usuario(usuario).hogar(hogar)
+                                .rol(Rol.builder().nombre("Padre").build())
+                                .esAdministrador(false).build()
+                ));
+        when(tareaRepository.findByHogarIdAndEstado(10L, "COMPLETADA"))
+                .thenReturn(List.of(tareaCompletada));
+
+        List<TareaCompletadaResponse> resultado =
+                tareaService.obtenerTareasCompletadas(10L, "juan@test.com");
+
+        assertNotNull(resultado);
+        assertEquals(1, resultado.size());
+        assertEquals("Limpiar", resultado.get(0).getNombreTarea());
+        assertEquals("Juan Test", resultado.get(0).getMiembro());
+    }
+
+
 }

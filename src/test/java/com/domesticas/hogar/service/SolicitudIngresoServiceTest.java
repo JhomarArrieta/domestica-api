@@ -1,6 +1,7 @@
 package com.domesticas.hogar.service;
 
 import com.domesticas.exception.BadRequestException;
+import com.domesticas.hogar.dto.response.MisSolicitudesResponse;
 import com.domesticas.hogar.model.Hogar;
 import com.domesticas.hogar.model.MiembroHogar;
 import com.domesticas.hogar.model.Rol;
@@ -19,6 +20,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -238,4 +240,75 @@ class SolicitudIngresoServiceTest {
         verify(miembroHogarRepository, never()).save(any());
         verify(solicitudIngresoRepository, never()).save(any());
     }
+
+    @Test
+    @DisplayName("HU6a - Usuario consulta sus solicitudes y ve estado PENDIENTE")
+    void obtenerMisSolicitudes_ConSolicitudPendiente_DebeRetornarListado() {
+
+        when(solicitudIngresoRepository.findByUsuarioId(3L))
+                .thenReturn(List.of(solicitudPendiente));
+
+        List<MisSolicitudesResponse> resultado =
+                solicitudIngresoService.obtenerMisSolicitudes(3L);
+
+        assertNotNull(resultado);
+        assertEquals(1, resultado.size());
+        assertEquals("Hogar Test", resultado.get(0).getHogar());
+        assertEquals("PENDIENTE", resultado.get(0).getEstado());
+    }
+
+    @Test
+    @DisplayName("HU6b - Usuario sin solicitudes recibe lista vacía")
+    void obtenerMisSolicitudes_SinSolicitudes_DebeRetornarListaVacia() {
+
+        when(solicitudIngresoRepository.findByUsuarioId(3L))
+                .thenReturn(List.of());
+
+        List<MisSolicitudesResponse> resultado =
+                solicitudIngresoService.obtenerMisSolicitudes(3L);
+
+        assertNotNull(resultado);
+        assertTrue(resultado.isEmpty());
+    }
+
+    @Test
+    @DisplayName("HU6c - Usuario ve solicitud con estado ACEPTADA")
+    void obtenerMisSolicitudes_ConSolicitudAceptada_DebeRetornarEstadoAceptada() {
+
+        SolicitudIngreso solicitudAceptada = SolicitudIngreso.builder()
+                .id(2L)
+                .usuario(usuarioSolicitante)
+                .hogar(hogar)
+                .estado("ACEPTADA")
+                .build();
+
+        when(solicitudIngresoRepository.findByUsuarioId(3L))
+                .thenReturn(List.of(solicitudAceptada));
+
+        List<MisSolicitudesResponse> resultado =
+                solicitudIngresoService.obtenerMisSolicitudes(3L);
+
+        assertEquals("ACEPTADA", resultado.get(0).getEstado());
+    }
+
+    @Test
+    @DisplayName("HU6d - Usuario ve solicitud con estado RECHAZADA")
+    void obtenerMisSolicitudes_ConSolicitudRechazada_DebeRetornarEstadoRechazada() {
+
+        SolicitudIngreso solicitudRechazada = SolicitudIngreso.builder()
+                .id(3L)
+                .usuario(usuarioSolicitante)
+                .hogar(hogar)
+                .estado("RECHAZADA")
+                .build();
+
+        when(solicitudIngresoRepository.findByUsuarioId(3L))
+                .thenReturn(List.of(solicitudRechazada));
+
+        List<MisSolicitudesResponse> resultado =
+                solicitudIngresoService.obtenerMisSolicitudes(3L);
+
+        assertEquals("RECHAZADA", resultado.get(0).getEstado());
+    }
+
 }
