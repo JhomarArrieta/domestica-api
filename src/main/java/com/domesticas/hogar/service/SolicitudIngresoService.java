@@ -1,6 +1,7 @@
 package com.domesticas.hogar.service;
 
 import com.domesticas.exception.BadRequestException;
+import com.domesticas.hogar.dto.response.MisSolicitudesResponse;
 import com.domesticas.hogar.model.Hogar;
 import com.domesticas.hogar.model.MiembroHogar;
 import com.domesticas.hogar.model.Rol;
@@ -13,6 +14,7 @@ import com.domesticas.usuario.model.Usuario;
 import com.domesticas.usuario.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -108,4 +110,18 @@ public class SolicitudIngresoService {
 
         solicitudIngresoRepository.save(solicitud);
     }
+
+    public List<MisSolicitudesResponse> obtenerMisSolicitudes(Long usuarioId) {
+
+    List<SolicitudIngreso> solicitudes =
+            solicitudIngresoRepository.findByUsuarioId(usuarioId);
+
+    return solicitudes.stream()
+            .map(s -> MisSolicitudesResponse.builder()
+                    .id(s.getId())
+                    .hogar(s.getHogar().getNombre())
+                    .estado(s.getEstado())
+                    .build())
+            .toList();
+}
 }

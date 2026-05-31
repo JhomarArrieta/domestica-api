@@ -1,0 +1,36 @@
+services:
+
+  domesticas-api:
+    build: .
+    container_name: domesticas-api
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: jdbc:postgresql://TU_HOST
+      DB_USER: postgres
+      DB_PASSWORD: TU_PASSWORD
+      JWT_SECRET: mi_clave_super_secreta_para_jwt_1234
+      PORT: 8080
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - domesticas-api
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  grafana-data:
